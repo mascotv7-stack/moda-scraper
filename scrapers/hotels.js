@@ -1,5 +1,5 @@
 // Scrape Booking.com pour 3 options d'hôtels
-async function scrapeHotels(context, { destination, start_date, end_date, preferences }) {
+async function scrapeHotels(context, { destination, start_date, end_date, filters = {} }) {
   const page = await context.newPage()
   const results = []
 
@@ -7,7 +7,10 @@ async function scrapeHotels(context, { destination, start_date, end_date, prefer
     const checkin = start_date
     const checkout = end_date || start_date
 
-    const url = `https://www.booking.com/searchresults.fr.html?ss=${encodeURIComponent(destination)}&checkin=${checkin}&checkout=${checkout}&group_adults=1&no_rooms=1&order=popularity`
+    // Filtre prix max
+    const priceParam = filters.max_hotel ? `&price_max=${filters.max_hotel}` : ''
+
+    const url = `https://www.booking.com/searchresults.fr.html?ss=${encodeURIComponent(destination)}&checkin=${checkin}&checkout=${checkout}&group_adults=1&no_rooms=1&order=popularity${priceParam}`
     await page.goto(url, { waitUntil: 'networkidle', timeout: 30000 })
     await page.waitForTimeout(3000)
 

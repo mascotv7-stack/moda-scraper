@@ -1,5 +1,5 @@
 // Scrape SNCF Connect pour 3 options de trains
-async function scrapeTrains(context, { origin, destination, start_date }) {
+async function scrapeTrains(context, { origin, destination, start_date, filters = {} }) {
   const page = await context.newPage()
   const results = []
 
@@ -9,7 +9,8 @@ async function scrapeTrains(context, { origin, destination, start_date }) {
     const month = String(dateObj.getMonth() + 1).padStart(2, '0')
     const year = dateObj.getFullYear()
 
-    const url = `https://www.sncf-connect.com/app/home/shop/search?from=${encodeURIComponent(origin)}&to=${encodeURIComponent(destination)}&date=${year}-${month}-${day}T08:00:00&passengers=1`
+    const classParam = filters.cabin_class === 'business' ? '&travelClass=FIRST' : '&travelClass=SECOND'
+    const url = `https://www.sncf-connect.com/app/home/shop/search?from=${encodeURIComponent(origin)}&to=${encodeURIComponent(destination)}&date=${year}-${month}-${day}T08:00:00&passengers=1${classParam}`
     await page.goto(url, { waitUntil: 'networkidle', timeout: 30000 })
     await page.waitForTimeout(4000)
 

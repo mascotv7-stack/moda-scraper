@@ -1,15 +1,18 @@
 // Scrape Google Flights pour 3 options de vols
-async function scrapeFlights(context, { origin, destination, start_date, end_date }) {
+async function scrapeFlights(context, { origin, destination, start_date, end_date, filters = {} }) {
   const page = await context.newPage()
   const results = []
 
   try {
-    // Encoder les paramètres pour Google Flights
     const from = encodeURIComponent(origin)
     const to = encodeURIComponent(destination)
-    const date = start_date.replace(/-/g, '')
 
-    const url = `https://www.google.com/travel/flights?q=Flights+from+${from}+to+${to}+on+${start_date}`
+    // Paramètres cabine : tfs=1 economy, tfs=2 premium economy, tfs=3 business, tfs=4 first
+    const cabinMap = { economy: 1, premium_economy: 2, business: 3, first: 4 }
+    const cabinParam = filters.cabin_class ? `&tfs=${cabinMap[filters.cabin_class] || 1}` : ''
+    const directParam = filters.direct_only ? '&stops=1' : ''
+
+    const url = `https://www.google.com/travel/flights?q=Flights+from+${from}+to+${to}+on+${start_date}${cabinParam}${directParam}`
     await page.goto(url, { waitUntil: 'networkidle', timeout: 30000 })
     await page.waitForTimeout(3000)
 
