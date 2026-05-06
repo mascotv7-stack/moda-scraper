@@ -1,10 +1,16 @@
+const { applyTransportFilters } = require('./postFilters')
+
 // Scrape Eurostar pour 3 options (Paris ↔ Londres, Bruxelles, Amsterdam)
-async function scrapeEurostar(context, { origin, destination, start_date }) {
+async function scrapeEurostar(context, { origin, destination, start_date, end_date, filters = {} }) {
   const page = await context.newPage()
   const results = []
 
   try {
-    const url = `https://www.eurostar.com/fr-fr/train/recherche?origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(destination)}&outbound-date=${start_date}&adults=1`
+    const classMap = { economy: 'STANDARD', business: 'BUSINESS_PREMIER', first: 'STANDARD_PREMIER' }
+    const classParam = filters.cabin_class ? `&travelClass=${classMap[filters.cabin_class] || 'STANDARD'}` : ''
+    const roundTripParam = filters.round_trip && end_date ? `&inbound-date=${end_date}` : ''
+
+    const url = `https://www.eurostar.com/fr-fr/train/recherche?origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(destination)}&outbound-date=${start_date}&adults=1${classParam}${roundTripParam}`
     await page.goto(url, { waitUntil: 'networkidle', timeout: 30000 })
     await page.waitForTimeout(4000)
 
@@ -26,13 +32,7 @@ async function scrapeEurostar(context, { origin, destination, start_date }) {
           type: 'train',
           provider: 'Eurostar',
           source: 'eurostar',
-          details: {
-            departure_city: origin,
-            arrival_city: destination,
-            departure_time: depTime,
-            arrival_time: arrTime,
-            duration,
-          },
+          details: { departure_city: origin, arrival_city: destination, departure_time: depTime, arrival_time: arrTime, duration },
           price: priceNum,
           currency: 'EUR',
           url,
@@ -45,19 +45,11 @@ async function scrapeEurostar(context, { origin, destination, start_date }) {
       const maxAlt = Math.min(altCards.length, 3)
       for (let i = 0; i < maxAlt; i++) {
         const text = await altCards[i].textContent().catch(() => '')
-        if (text && text.trim().length > 20) {
-          results.push({
-            type: 'train',
-            provider: 'Eurostar',
-            source: 'eurostar',
-            details: { departure_city: origin, arrival_city: destination, raw: text.trim().slice(0, 200) },
-            price: null,
-            currency: 'EUR',
-            url,
-          })
-        }
+        if (text && text.trim().length > 20) results.push({ type: 'train', provider: 'Eurostar', source: 'eurostar', details: { departure_city: origin, arrival_city: destination, raw: text.trim().slice(0, 200) }, price: null, currency: 'EUR', url })
       }
     }
+
+    return applyTransportFilters(results, filters, { minKey: 'min_train', maxKey: 'max_train' })
   } finally {
     await page.close()
   }

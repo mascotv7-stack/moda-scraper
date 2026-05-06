@@ -1,17 +1,20 @@
+const { applyTransportFilters } = require('./postFilters')
+
 // Scrape Trainline pour 3 options de trains (Europe)
-async function scrapeTrainline(context, { origin, destination, start_date }) {
+async function scrapeTrainline(context, { origin, destination, start_date, end_date, filters = {} }) {
   const page = await context.newPage()
   const results = []
 
   try {
-    const dateObj = new Date(start_date)
     const isoDate = `${start_date}T08:00:00`
+    const classParam = filters.cabin_class === 'business' ? '&travel_class=first' : '&travel_class=second'
+    const directParam = filters.direct_only ? '&isDirect=true' : ''
+    const roundTripParam = filters.round_trip && end_date ? `&return_at=${end_date}T08:00:00` : ''
 
-    const url = `https://www.trainline.fr/search/${encodeURIComponent(origin)}/${encodeURIComponent(destination)}?departure_at=${isoDate}&pax=1`
+    const url = `https://www.trainline.fr/search/${encodeURIComponent(origin)}/${encodeURIComponent(destination)}?departure_at=${isoDate}&pax=1${classParam}${directParam}${roundTripParam}`
     await page.goto(url, { waitUntil: 'networkidle', timeout: 30000 })
     await page.waitForTimeout(4000)
 
-    // Attendre les résultats
     await page.waitForSelector('[data-testid="journey-result"], [class*="Journey"], article[class*="result"]', { timeout: 10000 }).catch(() => {})
 
     const trainCards = await page.$$('[data-testid="journey-result"], [class*="JourneyResult"], article[class*="result"]')
@@ -31,13 +34,7 @@ async function scrapeTrainline(context, { origin, destination, start_date }) {
           type: 'train',
           provider: trainType,
           source: 'trainline',
-          details: {
-            departure_city: origin,
-            arrival_city: destination,
-            departure_time: depTime,
-            arrival_time: arrTime,
-            duration,
-          },
+          details: { departure_city: origin, arrival_city: destination, departure_time: depTime, arrival_time: arrTime, duration },
           price: priceNum,
           currency: 'EUR',
           url,
@@ -50,19 +47,11 @@ async function scrapeTrainline(context, { origin, destination, start_date }) {
       const maxAlt = Math.min(altCards.length, 3)
       for (let i = 0; i < maxAlt; i++) {
         const text = await altCards[i].textContent().catch(() => '')
-        if (text && text.trim().length > 20) {
-          results.push({
-            type: 'train',
-            provider: 'Train disponible',
-            source: 'trainline',
-            details: { departure_city: origin, arrival_city: destination, raw: text.trim().slice(0, 200) },
-            price: null,
-            currency: 'EUR',
-            url,
-          })
-        }
+        if (text && text.trim().length > 20) results.push({ type: 'train', provider: 'Train disponible', source: 'trainline', details: { departure_city: origin, arrival_city: destination, raw: text.trim().slice(0, 200) }, price: null, currency: 'EUR', url })
       }
     }
+
+    return applyTransportFilters(results, filters, { minKey: 'min_train', maxKey: 'max_train' })
   } finally {
     await page.close()
   }

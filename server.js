@@ -25,22 +25,50 @@ const PORT = process.env.PORT || 3100
 
 app.get('/health', (_, res) => res.json({ ok: true }))
 
+async function geocodeAddress(address) {
+  try {
+    const res = await fetch(
+      `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(address)}&format=json&limit=1`,
+      { headers: { 'User-Agent': 'MODA-OS/1.0 (scraper)' } }
+    )
+    const data = await res.json()
+    if (data[0]) return { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon) }
+    return null
+  } catch {
+    return null
+  }
+}
+
 app.post('/search', async (req, res) => {
-  const { booking_id, origin, destination, start_date, end_date, preferences, travel_constraints } = req.body
+  const { booking_id, origin, destination, venue_address, start_date, end_date, preferences, travel_constraints } = req.body
 
   if (!origin || !destination || !start_date) {
     return res.status(400).json({ error: 'origin, destination et start_date sont requis' })
+  }
+
+  const maxHotelDistanceKm = travel_constraints?.max_hotel_distance_km || null
+  let venueCoords = null
+  if (venue_address && maxHotelDistanceKm) {
+    venueCoords = await geocodeAddress(venue_address)
   }
 
   const filters = {
     cabin_class: preferences?.cabin_class || null,
     excluded_airlines: preferences?.excluded_airlines || [],
     direct_only: travel_constraints?.direct_only || false,
-    max_flight: travel_constraints?.budget?.flight?.max || null,
-    max_train: travel_constraints?.budget?.train?.max || null,
-    max_hotel: travel_constraints?.budget?.hotel?.max || null,
-    max_chauffeur: travel_constraints?.budget?.chauffeur?.max || null,
+    round_trip: travel_constraints?.round_trip || false,
     arrival_before: travel_constraints?.arrival_before || null,
+    min_flight: travel_constraints?.budget?.flight?.min || null,
+    max_flight: travel_constraints?.budget?.flight?.max || null,
+    min_train: travel_constraints?.budget?.train?.min || null,
+    max_train: travel_constraints?.budget?.train?.max || null,
+    min_hotel: travel_constraints?.budget?.hotel?.min || null,
+    max_hotel: travel_constraints?.budget?.hotel?.max || null,
+    min_chauffeur: travel_constraints?.budget?.chauffeur?.min || null,
+    max_chauffeur: travel_constraints?.budget?.chauffeur?.max || null,
+    max_hotel_distance_km: maxHotelDistanceKm,
+    venue_lat: venueCoords?.lat || null,
+    venue_lon: venueCoords?.lon || null,
   }
 
   let browser

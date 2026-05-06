@@ -1,5 +1,7 @@
+const { applyTransportFilters } = require('./postFilters')
+
 // Scrape Trenitalia pour 3 options de trains (Italie — essentiel pour Milan Fashion Week)
-async function scrapeTreenitalia(context, { origin, destination, start_date }) {
+async function scrapeTreenitalia(context, { origin, destination, start_date, end_date, filters = {} }) {
   const page = await context.newPage()
   const results = []
 
@@ -10,11 +12,13 @@ async function scrapeTreenitalia(context, { origin, destination, start_date }) {
     const year = dateObj.getFullYear()
     const formattedDate = `${day}/${month}/${year}`
 
-    const url = `https://www.trenitalia.com/en/search-trains.html?fromStation=${encodeURIComponent(origin)}&toStation=${encodeURIComponent(destination)}&departureDate=${formattedDate}&adults=1`
+    const classParam = filters.cabin_class === 'business' ? '&travelClass=FIRST' : '&travelClass=SECOND'
+    const roundTripParam = filters.round_trip && end_date ? `&returnDate=${end_date}` : ''
+
+    const url = `https://www.trenitalia.com/en/search-trains.html?fromStation=${encodeURIComponent(origin)}&toStation=${encodeURIComponent(destination)}&departureDate=${formattedDate}&adults=1${classParam}${roundTripParam}`
     await page.goto(url, { waitUntil: 'networkidle', timeout: 30000 })
     await page.waitForTimeout(4000)
 
-    // Accepter cookies si présent
     const acceptBtn = await page.$('#onetrust-accept-btn-handler, [class*="accept-cookies"], button[id*="accept"]')
     if (acceptBtn) await acceptBtn.click().catch(() => {})
     await page.waitForTimeout(1500)
@@ -38,13 +42,7 @@ async function scrapeTreenitalia(context, { origin, destination, start_date }) {
           type: 'train',
           provider: trainType,
           source: 'trenitalia',
-          details: {
-            departure_city: origin,
-            arrival_city: destination,
-            departure_time: depTime,
-            arrival_time: arrTime,
-            duration,
-          },
+          details: { departure_city: origin, arrival_city: destination, departure_time: depTime, arrival_time: arrTime, duration },
           price: priceNum,
           currency: 'EUR',
           url,
@@ -53,20 +51,10 @@ async function scrapeTreenitalia(context, { origin, destination, start_date }) {
     }
 
     if (results.length === 0) {
-      results.push({
-        type: 'train',
-        provider: 'Trenitalia',
-        source: 'trenitalia',
-        details: {
-          departure_city: origin,
-          arrival_city: destination,
-          note: 'Résultats disponibles sur le site',
-        },
-        price: null,
-        currency: 'EUR',
-        url,
-      })
+      results.push({ type: 'train', provider: 'Trenitalia', source: 'trenitalia', details: { departure_city: origin, arrival_city: destination, note: 'Résultats disponibles sur le site' }, price: null, currency: 'EUR', url })
     }
+
+    return applyTransportFilters(results, filters, { minKey: 'min_train', maxKey: 'max_train' })
   } finally {
     await page.close()
   }

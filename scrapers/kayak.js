@@ -1,5 +1,7 @@
+const { applyTransportFilters } = require('./postFilters')
+
 // Scrape Kayak pour 3 options de vols
-async function scrapeKayak(context, { origin, destination, start_date, filters = {} }) {
+async function scrapeKayak(context, { origin, destination, start_date, end_date, filters = {} }) {
   const page = await context.newPage()
   const results = []
 
@@ -9,11 +11,14 @@ async function scrapeKayak(context, { origin, destination, start_date, filters =
     const directParam = filters.direct_only ? ';stops=0stop' : ''
     const priceParam = filters.max_flight ? `;price=-${filters.max_flight}` : ''
 
-    const url = `https://www.kayak.fr/vols/${encodeURIComponent(origin)}-${encodeURIComponent(destination)}/${start_date}?fs=${cabinParam}${directParam}${priceParam}`
+    const route = filters.round_trip && end_date
+      ? `${encodeURIComponent(origin)}-${encodeURIComponent(destination)}/${start_date}/${end_date}`
+      : `${encodeURIComponent(origin)}-${encodeURIComponent(destination)}/${start_date}`
+
+    const url = `https://www.kayak.fr/vols/${route}?fs=${cabinParam}${directParam}${priceParam}`
     await page.goto(url, { waitUntil: 'networkidle', timeout: 30000 })
     await page.waitForTimeout(4000)
 
-    // Attendre que les résultats chargent
     await page.waitForSelector('.nrc6, [class*="resultWrapper"], [class*="FlightResult"]', { timeout: 10000 }).catch(() => {})
 
     const flightCards = await page.$$('.nrc6, [class*="resultWrapper"]')
@@ -33,13 +38,7 @@ async function scrapeKayak(context, { origin, destination, start_date, filters =
           type: 'flight',
           provider: carrier,
           source: 'kayak',
-          details: {
-            departure_city: origin,
-            arrival_city: destination,
-            departure_time: depTime,
-            arrival_time: arrTime,
-            duration,
-          },
+          details: { departure_city: origin, arrival_city: destination, departure_time: depTime, arrival_time: arrTime, duration },
           price: priceNum,
           currency: 'EUR',
           url,
@@ -52,19 +51,11 @@ async function scrapeKayak(context, { origin, destination, start_date, filters =
       const maxAlt = Math.min(altCards.length, 3)
       for (let i = 0; i < maxAlt; i++) {
         const text = await altCards[i].textContent().catch(() => '')
-        if (text) {
-          results.push({
-            type: 'flight',
-            provider: 'Vol disponible',
-            source: 'kayak',
-            details: { departure_city: origin, arrival_city: destination, raw: text.trim().slice(0, 200) },
-            price: null,
-            currency: 'EUR',
-            url,
-          })
-        }
+        if (text) results.push({ type: 'flight', provider: 'Vol disponible', source: 'kayak', details: { departure_city: origin, arrival_city: destination, raw: text.trim().slice(0, 200) }, price: null, currency: 'EUR', url })
       }
     }
+
+    return applyTransportFilters(results, filters, { minKey: 'min_flight', maxKey: 'max_flight' })
   } finally {
     await page.close()
   }

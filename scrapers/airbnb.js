@@ -1,3 +1,5 @@
+const { filterByDistance } = require('./geo')
+
 // Scrape Airbnb pour 3 logements (Fashion Month — séjours longue durée)
 async function scrapeAirbnb(context, { destination, start_date, end_date, filters = {} }) {
   const page = await context.newPage()
@@ -6,11 +8,15 @@ async function scrapeAirbnb(context, { destination, start_date, end_date, filter
   try {
     const checkout = end_date || start_date
     const priceMax = filters.max_hotel || 500
-    const url = `https://www.airbnb.fr/s/${encodeURIComponent(destination)}/homes?checkin=${start_date}&checkout=${checkout}&adults=1&price_max=${priceMax}`
+
+    const locationParam = filters.venue_lat && filters.venue_lon
+      ? `${filters.venue_lat},${filters.venue_lon}`
+      : encodeURIComponent(destination)
+
+    const url = `https://www.airbnb.fr/s/${locationParam}/homes?checkin=${start_date}&checkout=${checkout}&adults=1&price_max=${priceMax}`
     await page.goto(url, { waitUntil: 'networkidle', timeout: 30000 })
     await page.waitForTimeout(5000)
 
-    // Fermer popup cookies/géolocalisation
     const closeBtn = await page.$('[data-testid="modal-close-btn"], [aria-label="Fermer"], button[aria-label="Close"]')
     if (closeBtn) await closeBtn.click().catch(() => {})
     await page.waitForTimeout(1000)
@@ -34,13 +40,7 @@ async function scrapeAirbnb(context, { destination, start_date, end_date, filter
           type: 'hotel',
           provider: name,
           source: 'airbnb',
-          details: {
-            name,
-            type,
-            rating: ratingText,
-            check_in: start_date,
-            check_out: checkout,
-          },
+          details: { name, address: `${name}, ${destination}`, type, rating: ratingText, check_in: start_date, check_out: checkout },
           price: priceNum,
           currency: 'EUR',
           url: link,
@@ -66,6 +66,9 @@ async function scrapeAirbnb(context, { destination, start_date, end_date, filter
         }
       }
     }
+
+    const byDistance = await filterByDistance(results, filters, destination)
+    return filterByPrice(byDistance, filters.min_hotel, filters.max_hotel)
   } finally {
     await page.close()
   }

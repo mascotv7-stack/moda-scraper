@@ -1,5 +1,7 @@
-// Snapcar — génère un lien de réservation pré-rempli (pas de page de résultats scrapable)
-async function scrapeSnapcar(context, { origin, destination, start_date }) {
+const { filterByPrice } = require('./postFilters')
+
+// Snapcar — génère un lien de réservation pré-rempli
+async function scrapeSnapcar(context, { origin, destination, start_date, filters = {} }) {
   const page = await context.newPage()
   const results = []
 
@@ -8,7 +10,6 @@ async function scrapeSnapcar(context, { origin, destination, start_date }) {
     await page.goto(url, { waitUntil: 'networkidle', timeout: 20000 })
     await page.waitForTimeout(2000)
 
-    // Récupérer les catégories de véhicules disponibles si présentes
     const vehicleCards = await page.$$('[class*="vehicle-category"], [class*="VehicleCard"], [class*="car-class"]')
     const maxResults = Math.min(vehicleCards.length, 3)
 
@@ -19,42 +20,15 @@ async function scrapeSnapcar(context, { origin, destination, start_date }) {
         const priceText = await card.$eval('[class*="price"], [class*="tarif"]', el => el.textContent.trim()).catch(() => null)
         const priceNum = priceText ? parseFloat(priceText.replace(/[^0-9,]/g, '').replace(',', '.')) : null
 
-        if (name) {
-          results.push({
-            type: 'chauffeur',
-            provider: `Snapcar — ${name}`,
-            source: 'snapcar',
-            details: {
-              pickup: origin,
-              dropoff: destination,
-              date: start_date,
-              vehicle_class: name,
-            },
-            price: priceNum,
-            currency: 'EUR',
-            url,
-          })
-        }
+        if (name) results.push({ type: 'chauffeur', provider: `Snapcar — ${name}`, source: 'snapcar', details: { pickup: origin, dropoff: destination, date: start_date, arrival_before: filters.arrival_before || null, vehicle_class: name }, price: priceNum, currency: 'EUR', url })
       } catch (_) {}
     }
 
-    // Fallback : retourner un lien de réservation direct si pas de résultats parsés
     if (results.length === 0) {
-      results.push({
-        type: 'chauffeur',
-        provider: 'Snapcar',
-        source: 'snapcar',
-        details: {
-          pickup: origin,
-          dropoff: destination,
-          date: start_date,
-          note: 'Devis disponible sur le site',
-        },
-        price: null,
-        currency: 'EUR',
-        url,
-      })
+      results.push({ type: 'chauffeur', provider: 'Snapcar', source: 'snapcar', details: { pickup: origin, dropoff: destination, date: start_date, arrival_before: filters.arrival_before || null, note: 'Devis disponible sur le site' }, price: null, currency: 'EUR', url })
     }
+
+    return filterByPrice(results, filters.min_chauffeur, filters.max_chauffeur)
   } finally {
     await page.close()
   }

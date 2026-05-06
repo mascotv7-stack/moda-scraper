@@ -1,5 +1,7 @@
+const { applyTransportFilters } = require('./postFilters')
+
 // Scrape SNCF Connect pour 3 options de trains
-async function scrapeTrains(context, { origin, destination, start_date, filters = {} }) {
+async function scrapeTrains(context, { origin, destination, start_date, end_date, filters = {} }) {
   const page = await context.newPage()
   const results = []
 
@@ -10,11 +12,13 @@ async function scrapeTrains(context, { origin, destination, start_date, filters 
     const year = dateObj.getFullYear()
 
     const classParam = filters.cabin_class === 'business' ? '&travelClass=FIRST' : '&travelClass=SECOND'
-    const url = `https://www.sncf-connect.com/app/home/shop/search?from=${encodeURIComponent(origin)}&to=${encodeURIComponent(destination)}&date=${year}-${month}-${day}T08:00:00&passengers=1${classParam}`
+    const directParam = filters.direct_only ? '&directTrains=true' : ''
+    const roundTripParam = filters.round_trip && end_date ? `&returnDate=${end_date}T08:00:00` : ''
+
+    const url = `https://www.sncf-connect.com/app/home/shop/search?from=${encodeURIComponent(origin)}&to=${encodeURIComponent(destination)}&date=${year}-${month}-${day}T08:00:00&passengers=1${classParam}${directParam}${roundTripParam}`
     await page.goto(url, { waitUntil: 'networkidle', timeout: 30000 })
     await page.waitForTimeout(4000)
 
-    // Sélectionner les cartes trajets
     const trainCards = await page.$$('[data-testid="proposal-card"], .proposal-card, article[class*="proposal"]')
     const maxResults = Math.min(trainCards.length, 3)
 
@@ -31,21 +35,15 @@ async function scrapeTrains(context, { origin, destination, start_date, filters 
         results.push({
           type: 'train',
           provider: trainType,
-          details: {
-            departure_city: origin,
-            arrival_city: destination,
-            departure_time: depTime,
-            arrival_time: arrTime,
-            duration,
-          },
+          details: { departure_city: origin, arrival_city: destination, departure_time: depTime, arrival_time: arrTime, duration },
           price: priceNum,
           currency: 'EUR',
           url,
         })
-      } catch (_) {
-        // Ignorer
-      }
+      } catch (_) {}
     }
+
+    return applyTransportFilters(results, filters, { minKey: 'min_train', maxKey: 'max_train' })
   } finally {
     await page.close()
   }

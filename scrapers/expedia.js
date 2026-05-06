@@ -1,3 +1,6 @@
+const { filterByDistance } = require('./geo')
+const { filterByPrice } = require('./postFilters')
+
 // Scrape Expedia — vols et hôtels
 async function scrapeExpediaFlights(context, { origin, destination, start_date }) {
   const page = await context.newPage()
@@ -52,7 +55,7 @@ async function scrapeExpediaFlights(context, { origin, destination, start_date }
   return results
 }
 
-async function scrapeExpediaHotels(context, { destination, start_date, end_date }) {
+async function scrapeExpediaHotels(context, { destination, start_date, end_date, filters = {} }) {
   const page = await context.newPage()
   const results = []
 
@@ -96,6 +99,9 @@ async function scrapeExpediaHotels(context, { destination, start_date, end_date 
         })
       } catch (_) {}
     }
+
+    const byDistance = await filterByDistance(results, filters, destination)
+    return filterByPrice(byDistance, filters.min_hotel, filters.max_hotel)
   } finally {
     await page.close()
   }

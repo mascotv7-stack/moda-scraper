@@ -1,10 +1,13 @@
+const { applyTransportFilters } = require('./postFilters')
+
 // Scrape Ouigo pour 3 options de trains low-cost
-async function scrapeOuigo(context, { origin, destination, start_date }) {
+async function scrapeOuigo(context, { origin, destination, start_date, end_date, filters = {} }) {
   const page = await context.newPage()
   const results = []
 
   try {
-    const url = `https://www.ouigo.com/recherche?origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(destination)}&date=${start_date}&passengers=1`
+    const roundTripParam = filters.round_trip && end_date ? `&returnDate=${end_date}` : ''
+    const url = `https://www.ouigo.com/recherche?origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(destination)}&date=${start_date}&passengers=1${roundTripParam}`
     await page.goto(url, { waitUntil: 'networkidle', timeout: 30000 })
     await page.waitForTimeout(4000)
 
@@ -26,13 +29,7 @@ async function scrapeOuigo(context, { origin, destination, start_date }) {
           type: 'train',
           provider: 'OUIGO',
           source: 'ouigo',
-          details: {
-            departure_city: origin,
-            arrival_city: destination,
-            departure_time: depTime,
-            arrival_time: arrTime,
-            duration,
-          },
+          details: { departure_city: origin, arrival_city: destination, departure_time: depTime, arrival_time: arrTime, duration },
           price: priceNum,
           currency: 'EUR',
           url,
@@ -45,19 +42,11 @@ async function scrapeOuigo(context, { origin, destination, start_date }) {
       const maxAlt = Math.min(altCards.length, 3)
       for (let i = 0; i < maxAlt; i++) {
         const text = await altCards[i].textContent().catch(() => '')
-        if (text && text.trim().length > 10) {
-          results.push({
-            type: 'train',
-            provider: 'OUIGO',
-            source: 'ouigo',
-            details: { departure_city: origin, arrival_city: destination, raw: text.trim().slice(0, 200) },
-            price: null,
-            currency: 'EUR',
-            url,
-          })
-        }
+        if (text && text.trim().length > 10) results.push({ type: 'train', provider: 'OUIGO', source: 'ouigo', details: { departure_city: origin, arrival_city: destination, raw: text.trim().slice(0, 200) }, price: null, currency: 'EUR', url })
       }
     }
+
+    return applyTransportFilters(results, filters, { minKey: 'min_train', maxKey: 'max_train' })
   } finally {
     await page.close()
   }

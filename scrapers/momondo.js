@@ -1,10 +1,20 @@
+const { applyTransportFilters } = require('./postFilters')
+
 // Scrape Momondo pour 3 options de vols (agrégateur — souvent moins cher)
-async function scrapeMomondo(context, { origin, destination, start_date }) {
+async function scrapeMomondo(context, { origin, destination, start_date, end_date, filters = {} }) {
   const page = await context.newPage()
   const results = []
 
   try {
-    const url = `https://www.momondo.fr/flight-search/${encodeURIComponent(origin)}-${encodeURIComponent(destination)}/${start_date}/1adults`
+    const cabinMap = { economy: 'e', business: 'b', first: 'f' }
+    const cabinParam = filters.cabin_class ? `;cabin=${cabinMap[filters.cabin_class] || 'e'}` : ''
+    const directParam = filters.direct_only ? ';stops=0stop' : ''
+
+    const route = filters.round_trip && end_date
+      ? `${encodeURIComponent(origin)}-${encodeURIComponent(destination)}/${start_date}/${end_date}/1adults`
+      : `${encodeURIComponent(origin)}-${encodeURIComponent(destination)}/${start_date}/1adults`
+
+    const url = `https://www.momondo.fr/flight-search/${route}?fs=${cabinParam}${directParam}`
     await page.goto(url, { waitUntil: 'networkidle', timeout: 30000 })
     await page.waitForTimeout(5000)
 
@@ -12,7 +22,6 @@ async function scrapeMomondo(context, { origin, destination, start_date }) {
     if (acceptBtn) await acceptBtn.click().catch(() => {})
     await page.waitForTimeout(1000)
 
-    // Momondo et Kayak partagent la même structure (même groupe)
     await page.waitForSelector('[class*="nrc6"], [class*="resultWrapper"], [class*="FlightResult"]', { timeout: 10000 }).catch(() => {})
 
     const flightCards = await page.$$('[class*="nrc6"], [class*="resultWrapper"]')
@@ -32,13 +41,7 @@ async function scrapeMomondo(context, { origin, destination, start_date }) {
           type: 'flight',
           provider: carrier,
           source: 'momondo',
-          details: {
-            departure_city: origin,
-            arrival_city: destination,
-            departure_time: depTime,
-            arrival_time: arrTime,
-            duration,
-          },
+          details: { departure_city: origin, arrival_city: destination, departure_time: depTime, arrival_time: arrTime, duration },
           price: priceNum,
           currency: 'EUR',
           url,
@@ -51,19 +54,11 @@ async function scrapeMomondo(context, { origin, destination, start_date }) {
       const maxAlt = Math.min(altCards.length, 3)
       for (let i = 0; i < maxAlt; i++) {
         const text = await altCards[i].textContent().catch(() => '')
-        if (text && text.trim().length > 20) {
-          results.push({
-            type: 'flight',
-            provider: 'Vol disponible',
-            source: 'momondo',
-            details: { departure_city: origin, arrival_city: destination, raw: text.trim().slice(0, 200) },
-            price: null,
-            currency: 'EUR',
-            url,
-          })
-        }
+        if (text && text.trim().length > 20) results.push({ type: 'flight', provider: 'Vol disponible', source: 'momondo', details: { departure_city: origin, arrival_city: destination, raw: text.trim().slice(0, 200) }, price: null, currency: 'EUR', url })
       }
     }
+
+    return applyTransportFilters(results, filters, { minKey: 'min_flight', maxKey: 'max_flight' })
   } finally {
     await page.close()
   }

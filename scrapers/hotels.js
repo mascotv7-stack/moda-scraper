@@ -1,3 +1,6 @@
+const { haversineKm, geocodeAddress, filterByDistance } = require('./geo')
+const { filterByPrice } = require('./postFilters')
+
 // Scrape Booking.com pour 3 options d'hôtels
 async function scrapeHotels(context, { destination, start_date, end_date, filters = {} }) {
   const page = await context.newPage()
@@ -7,10 +10,14 @@ async function scrapeHotels(context, { destination, start_date, end_date, filter
     const checkin = start_date
     const checkout = end_date || start_date
 
-    // Filtre prix max
     const priceParam = filters.max_hotel ? `&price_max=${filters.max_hotel}` : ''
 
-    const url = `https://www.booking.com/searchresults.fr.html?ss=${encodeURIComponent(destination)}&checkin=${checkin}&checkout=${checkout}&group_adults=1&no_rooms=1&order=popularity${priceParam}`
+    // Centrer la recherche sur le venue si les coordonnées sont disponibles
+    const locationParam = filters.venue_lat && filters.venue_lon
+      ? `latitude=${filters.venue_lat}&longitude=${filters.venue_lon}`
+      : `ss=${encodeURIComponent(destination)}`
+
+    const url = `https://www.booking.com/searchresults.fr.html?${locationParam}&checkin=${checkin}&checkout=${checkout}&group_adults=1&no_rooms=1&order=distance${priceParam}`
     await page.goto(url, { waitUntil: 'networkidle', timeout: 30000 })
     await page.waitForTimeout(3000)
 
@@ -52,6 +59,8 @@ async function scrapeHotels(context, { destination, start_date, end_date, filter
         // Ignorer
       }
     }
+    const byDistance = await filterByDistance(results, filters, destination)
+    return filterByPrice(byDistance, filters.min_hotel, filters.max_hotel)
   } finally {
     await page.close()
   }

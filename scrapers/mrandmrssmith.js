@@ -1,5 +1,8 @@
+const { filterByDistance } = require('./geo')
+const { filterByPrice } = require('./postFilters')
+
 // Scrape Mr & Mrs Smith pour 3 hôtels boutique luxe
-async function scrapeMrMrsSmith(context, { destination, start_date, end_date }) {
+async function scrapeMrMrsSmith(context, { destination, start_date, end_date, filters = {} }) {
   const page = await context.newPage()
   const results = []
 
@@ -31,13 +34,7 @@ async function scrapeMrMrsSmith(context, { destination, start_date, end_date }) 
           type: 'hotel',
           provider: name,
           source: 'mrandmrssmith',
-          details: {
-            name,
-            address: location,
-            category: 'boutique-luxe',
-            check_in: start_date,
-            check_out: checkout,
-          },
+          details: { name, address: location, category: 'boutique-luxe', check_in: start_date, check_out: checkout },
           price: priceNum,
           currency: 'EUR',
           url: link,
@@ -63,6 +60,9 @@ async function scrapeMrMrsSmith(context, { destination, start_date, end_date }) 
         }
       }
     }
+
+    const byDistance = await filterByDistance(results, filters, destination)
+    return filterByPrice(byDistance, filters.min_hotel, filters.max_hotel)
   } finally {
     await page.close()
   }

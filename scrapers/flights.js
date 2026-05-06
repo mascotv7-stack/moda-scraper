@@ -1,3 +1,5 @@
+const { applyTransportFilters } = require('./postFilters')
+
 // Scrape Google Flights pour 3 options de vols
 async function scrapeFlights(context, { origin, destination, start_date, end_date, filters = {} }) {
   const page = await context.newPage()
@@ -7,16 +9,15 @@ async function scrapeFlights(context, { origin, destination, start_date, end_dat
     const from = encodeURIComponent(origin)
     const to = encodeURIComponent(destination)
 
-    // Paramètres cabine : tfs=1 economy, tfs=2 premium economy, tfs=3 business, tfs=4 first
     const cabinMap = { economy: 1, premium_economy: 2, business: 3, first: 4 }
     const cabinParam = filters.cabin_class ? `&tfs=${cabinMap[filters.cabin_class] || 1}` : ''
     const directParam = filters.direct_only ? '&stops=1' : ''
+    const tripType = filters.round_trip && end_date ? `Flights+from+${from}+to+${to}+on+${start_date}+return+${end_date}` : `Flights+from+${from}+to+${to}+on+${start_date}`
 
-    const url = `https://www.google.com/travel/flights?q=Flights+from+${from}+to+${to}+on+${start_date}${cabinParam}${directParam}`
+    const url = `https://www.google.com/travel/flights?q=${tripType}${cabinParam}${directParam}`
     await page.goto(url, { waitUntil: 'networkidle', timeout: 30000 })
     await page.waitForTimeout(3000)
 
-    // Sélectionner les cartes de résultats de vols
     const flightCards = await page.$$('div[jsname="IWWDBc"], li[jsname="IWWDBc"]')
     const maxResults = Math.min(flightCards.length, 3)
 
@@ -33,41 +34,24 @@ async function scrapeFlights(context, { origin, destination, start_date, end_dat
         results.push({
           type: 'flight',
           provider: carrier,
-          details: {
-            departure_city: origin,
-            arrival_city: destination,
-            departure_time: departure,
-            arrival_time: arrival,
-            duration,
-          },
+          details: { departure_city: origin, arrival_city: destination, departure_time: departure, arrival_time: arrival, duration },
           price: priceNum,
           currency: 'EUR',
           url,
         })
-      } catch (_) {
-        // Ignorer les cartes mal parsées
-      }
+      } catch (_) {}
     }
 
-    // Si rien trouvé, essayer un sélecteur alternatif
     if (results.length === 0) {
       const altCards = await page.$$('.pIav2d')
       const maxAlt = Math.min(altCards.length, 3)
       for (let i = 0; i < maxAlt; i++) {
-        const card = altCards[i]
-        const text = await card.textContent().catch(() => '')
-        if (text) {
-          results.push({
-            type: 'flight',
-            provider: 'Vol disponible',
-            details: { departure_city: origin, arrival_city: destination, raw: text.trim().slice(0, 200) },
-            price: null,
-            currency: 'EUR',
-            url,
-          })
-        }
+        const text = await altCards[i].textContent().catch(() => '')
+        if (text) results.push({ type: 'flight', provider: 'Vol disponible', details: { departure_city: origin, arrival_city: destination, raw: text.trim().slice(0, 200) }, price: null, currency: 'EUR', url })
       }
     }
+
+    return applyTransportFilters(results, filters, { minKey: 'min_flight', maxKey: 'max_flight' })
   } finally {
     await page.close()
   }

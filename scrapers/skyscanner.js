@@ -1,19 +1,24 @@
+const { applyTransportFilters } = require('./postFilters')
+
 // Scrape Skyscanner pour 3 options de vols
-async function scrapeSkyscanner(context, { origin, destination, start_date, filters = {} }) {
+async function scrapeSkyscanner(context, { origin, destination, start_date, end_date, filters = {} }) {
   const page = await context.newPage()
   const results = []
 
   try {
-    const date = start_date.replace(/-/g, '').slice(2) // YYMMDD
+    const date = start_date.replace(/-/g, '').slice(2)
     const cabinMap = { economy: 'economy', business: 'business', first: 'first' }
     const cabinParam = filters.cabin_class ? `?cabinclass=${cabinMap[filters.cabin_class] || 'economy'}` : ''
     const directParam = filters.direct_only ? (cabinParam ? '&stops=direct' : '?stops=direct') : ''
 
-    const url = `https://www.skyscanner.fr/transport/vols/${encodeURIComponent(origin.toLowerCase())}/${encodeURIComponent(destination.toLowerCase())}/${date}/${cabinParam}${directParam}`
+    const route = filters.round_trip && end_date
+      ? `${encodeURIComponent(origin.toLowerCase())}/${encodeURIComponent(destination.toLowerCase())}/${date}/${end_date.replace(/-/g, '').slice(2)}`
+      : `${encodeURIComponent(origin.toLowerCase())}/${encodeURIComponent(destination.toLowerCase())}/${date}`
+
+    const url = `https://www.skyscanner.fr/transport/vols/${route}/${cabinParam}${directParam}`
     await page.goto(url, { waitUntil: 'networkidle', timeout: 30000 })
     await page.waitForTimeout(5000)
 
-    // Fermer popup si présent
     const closeBtn = await page.$('[class*="BpkModal_close"], [aria-label="Fermer"]')
     if (closeBtn) await closeBtn.click().catch(() => {})
     await page.waitForTimeout(1000)
@@ -37,13 +42,7 @@ async function scrapeSkyscanner(context, { origin, destination, start_date, filt
           type: 'flight',
           provider: carrier,
           source: 'skyscanner',
-          details: {
-            departure_city: origin,
-            arrival_city: destination,
-            departure_time: depTime,
-            arrival_time: arrTime,
-            duration,
-          },
+          details: { departure_city: origin, arrival_city: destination, departure_time: depTime, arrival_time: arrTime, duration },
           price: priceNum,
           currency: 'EUR',
           url,
@@ -56,19 +55,11 @@ async function scrapeSkyscanner(context, { origin, destination, start_date, filt
       const maxAlt = Math.min(altCards.length, 3)
       for (let i = 0; i < maxAlt; i++) {
         const text = await altCards[i].textContent().catch(() => '')
-        if (text && text.trim().length > 20) {
-          results.push({
-            type: 'flight',
-            provider: 'Vol disponible',
-            source: 'skyscanner',
-            details: { departure_city: origin, arrival_city: destination, raw: text.trim().slice(0, 200) },
-            price: null,
-            currency: 'EUR',
-            url,
-          })
-        }
+        if (text && text.trim().length > 20) results.push({ type: 'flight', provider: 'Vol disponible', source: 'skyscanner', details: { departure_city: origin, arrival_city: destination, raw: text.trim().slice(0, 200) }, price: null, currency: 'EUR', url })
       }
     }
+
+    return applyTransportFilters(results, filters, { minKey: 'min_flight', maxKey: 'max_flight' })
   } finally {
     await page.close()
   }

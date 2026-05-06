@@ -1,5 +1,8 @@
+const { filterByDistance } = require('./geo')
+const { filterByPrice } = require('./postFilters')
+
 // Scrape Hotels.com pour 3 options d'hôtels
-async function scrapeHotelsCom(context, { destination, start_date, end_date, preferences }) {
+async function scrapeHotelsCom(context, { destination, start_date, end_date, filters = {} }) {
   const page = await context.newPage()
   const results = []
 
@@ -11,7 +14,6 @@ async function scrapeHotelsCom(context, { destination, start_date, end_date, pre
     await page.goto(url, { waitUntil: 'networkidle', timeout: 30000 })
     await page.waitForTimeout(3000)
 
-    // Fermer popup consentement si présent
     const acceptBtn = await page.$('button[data-stid="accept-button"], #onetrust-accept-btn-handler')
     if (acceptBtn) await acceptBtn.click().catch(() => {})
     await page.waitForTimeout(1000)
@@ -33,13 +35,7 @@ async function scrapeHotelsCom(context, { destination, start_date, end_date, pre
           type: 'hotel',
           provider: name,
           source: 'hotels.com',
-          details: {
-            name,
-            address,
-            rating: ratingText,
-            check_in: checkin,
-            check_out: checkout,
-          },
+          details: { name, address, rating: ratingText, check_in: checkin, check_out: checkout },
           price: priceNum,
           currency: 'EUR',
           url: link,
@@ -47,7 +43,6 @@ async function scrapeHotelsCom(context, { destination, start_date, end_date, pre
       } catch (_) {}
     }
 
-    // Sélecteur alternatif si rien trouvé
     if (results.length === 0) {
       const altCards = await page.$$('.uitk-card, [class*="PropertyCard"]')
       const maxAlt = Math.min(altCards.length, 3)
@@ -66,6 +61,9 @@ async function scrapeHotelsCom(context, { destination, start_date, end_date, pre
         }
       }
     }
+
+    const byDistance = await filterByDistance(results, filters, destination)
+    return filterByPrice(byDistance, filters.min_hotel, filters.max_hotel)
   } finally {
     await page.close()
   }
