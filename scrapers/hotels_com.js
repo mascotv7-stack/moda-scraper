@@ -10,7 +10,10 @@ async function scrapeHotelsCom(context, { destination, start_date, end_date, fil
     const checkin = start_date
     const checkout = end_date || start_date
 
-    const url = `https://fr.hotels.com/search.do?q-destination=${encodeURIComponent(destination)}&q-check-in=${checkin}&q-check-out=${checkout}&q-rooms=1&q-room-0-adults=1`
+    const starsParam = filters.hotel_stars_min
+      ? `&star-rating-ids=${Array.from({ length: 5 - filters.hotel_stars_min + 1 }, (_, i) => (filters.hotel_stars_min + i) * 10).join(',')}`
+      : ''
+    const url = `https://fr.hotels.com/search.do?q-destination=${encodeURIComponent(destination)}&q-check-in=${checkin}&q-check-out=${checkout}&q-rooms=1&q-room-0-adults=1${starsParam}`
     await page.goto(url, { waitUntil: 'networkidle', timeout: 30000 })
     await page.waitForTimeout(3000)
 

@@ -61,7 +61,10 @@ async function scrapeExpediaHotels(context, { destination, start_date, end_date,
 
   try {
     const checkout = end_date || start_date
-    const url = `https://www.expedia.fr/Hotel-Search?destination=${encodeURIComponent(destination)}&startDate=${start_date}&endDate=${checkout}&rooms=1&adults=1`
+    const starsParam = filters.hotel_stars_min
+      ? `&star=${Array.from({ length: 5 - filters.hotel_stars_min + 1 }, (_, i) => filters.hotel_stars_min + i).join(',')}`
+      : ''
+    const url = `https://www.expedia.fr/Hotel-Search?destination=${encodeURIComponent(destination)}&startDate=${start_date}&endDate=${checkout}&rooms=1&adults=1${starsParam}`
     await page.goto(url, { waitUntil: 'networkidle', timeout: 30000 })
     await page.waitForTimeout(4000)
 

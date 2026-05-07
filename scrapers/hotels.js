@@ -11,13 +11,14 @@ async function scrapeHotels(context, { destination, start_date, end_date, filter
     const checkout = end_date || start_date
 
     const priceParam = filters.max_hotel ? `&price_max=${filters.max_hotel}` : ''
+    const starsParam = filters.hotel_stars_min ? `&class=${filters.hotel_stars_min}` : ''
 
     // Centrer la recherche sur le venue si les coordonnées sont disponibles
     const locationParam = filters.venue_lat && filters.venue_lon
       ? `latitude=${filters.venue_lat}&longitude=${filters.venue_lon}`
       : `ss=${encodeURIComponent(destination)}`
 
-    const url = `https://www.booking.com/searchresults.fr.html?${locationParam}&checkin=${checkin}&checkout=${checkout}&group_adults=1&no_rooms=1&order=distance${priceParam}`
+    const url = `https://www.booking.com/searchresults.fr.html?${locationParam}&checkin=${checkin}&checkout=${checkout}&group_adults=1&no_rooms=1&order=distance${priceParam}${starsParam}`
     await page.goto(url, { waitUntil: 'networkidle', timeout: 30000 })
     await page.waitForTimeout(3000)
 

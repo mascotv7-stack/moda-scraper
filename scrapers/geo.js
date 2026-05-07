@@ -20,6 +20,7 @@ async function geocodeAddress(address) {
   }
 }
 
+// Fallback : si tout est filtré, retourne les originaux avec too_far: true
 async function filterByDistance(results, filters, fallbackDestination) {
   if (!filters.venue_lat || !filters.venue_lon || !filters.max_hotel_distance_km) return results
   const filtered = []
@@ -37,6 +38,9 @@ async function filterByDistance(results, filters, fallbackDestination) {
     } else {
       filtered.push(hotel)
     }
+  }
+  if (filtered.length === 0 && results.length > 0) {
+    return results.map(r => ({ ...r, details: { ...(r.details || {}), too_far: true } }))
   }
   return filtered
 }
