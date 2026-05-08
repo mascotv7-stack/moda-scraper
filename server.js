@@ -9,9 +9,9 @@ app.use(express.json())
 const PORT = process.env.PORT || 3100
 
 app.get('/health', (_, res) => res.json({ ok: true, apis: {
-  flights: !!process.env.AMADEUS_API_KEY,
+  flights: !!process.env.DUFFEL_API_KEY,
   trains: !!process.env.SNCF_API_KEY,
-  hotels: !!process.env.AMADEUS_API_KEY,
+  hotels: !!process.env.SERPAPI_KEY,
 }}))
 
 async function geocodeAddress(address) {
