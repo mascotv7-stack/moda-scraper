@@ -1,62 +1,123 @@
 const { applyTransportFilters } = require('./postFilters')
 
-// Scrape Google Flights pour 3 options de vols
-async function scrapeFlights(context, { origin, destination, start_date, end_date, filters = {} }) {
-  const page = await context.newPage()
-  const results = []
+const DUFFEL_BASE = 'https://api.duffel.com'
 
-  try {
-    const from = encodeURIComponent(origin)
-    const to = encodeURIComponent(destination)
+const CABIN_MAP = {
+  economy: 'economy',
+  premium_economy: 'premium_economy',
+  business: 'business',
+  first: 'first',
+}
 
-    const cabinMap = { economy: 1, premium_economy: 2, business: 3, first: 4 }
-    const cabinParam = filters.cabin_class ? `&tfs=${cabinMap[filters.cabin_class] || 1}` : ''
-    const directParam = filters.direct_only ? '&stops=1' : ''
-    const tripType = filters.round_trip && end_date ? `Flights+from+${from}+to+${to}+on+${start_date}+return+${end_date}` : `Flights+from+${from}+to+${to}+on+${start_date}`
+function formatDuration(isoDuration) {
+  // PT2H35M → "2h35m"
+  const match = isoDuration?.match(/PT(?:(\d+)H)?(?:(\d+)M)?/)
+  if (!match) return isoDuration
+  const h = match[1] ? `${match[1]}h` : ''
+  const m = match[2] ? `${match[2]}m` : ''
+  return h + m
+}
 
-    const url = `https://www.google.com/travel/flights?q=${tripType}${cabinParam}${directParam}`
-    await page.goto(url, { waitUntil: 'networkidle', timeout: 30000 })
-    await page.waitForTimeout(3000)
-
-    const flightCards = await page.$$('div[jsname="IWWDBc"], li[jsname="IWWDBc"]')
-    const maxResults = Math.min(flightCards.length, 3)
-
-    for (let i = 0; i < maxResults; i++) {
-      const card = flightCards[i]
-      try {
-        const carrier = await card.$eval('[data-gs]', el => el.textContent.trim()).catch(() => 'Compagnie inconnue')
-        const departure = await card.$eval('span[aria-label*="Départ"]', el => el.textContent.trim()).catch(() => null)
-        const arrival = await card.$eval('span[aria-label*="Arrivée"]', el => el.textContent.trim()).catch(() => null)
-        const duration = await card.$eval('div[aria-label*="durée"]', el => el.textContent.trim()).catch(() => null)
-        const price = await card.$eval('span[data-gs]', el => el.textContent.trim()).catch(() => null)
-        const priceNum = price ? parseFloat(price.replace(/[^0-9]/g, '')) : null
-
-        results.push({
-          type: 'flight',
-          provider: carrier,
-          details: { departure_city: origin, arrival_city: destination, departure_time: departure, arrival_time: arrival, duration },
-          price: priceNum,
-          currency: 'EUR',
-          url,
-        })
-      } catch (_) {}
+async function cityToIata(city) {
+  const res = await fetch(
+    `${DUFFEL_BASE}/places/suggestions?query=${encodeURIComponent(city)}`,
+    {
+      headers: {
+        Authorization: `Bearer ${process.env.DUFFEL_API_KEY}`,
+        'Duffel-Version': 'v2',
+        Accept: 'application/json',
+      },
     }
+  )
+  if (!res.ok) return null
+  const data = await res.json()
+  const place = data.data?.find((p) => p.type === 'airport' || p.type === 'city')
+  return place?.iata_code || null
+}
 
-    if (results.length === 0) {
-      const altCards = await page.$$('.pIav2d')
-      const maxAlt = Math.min(altCards.length, 3)
-      for (let i = 0; i < maxAlt; i++) {
-        const text = await altCards[i].textContent().catch(() => '')
-        if (text) results.push({ type: 'flight', provider: 'Vol disponible', details: { departure_city: origin, arrival_city: destination, raw: text.trim().slice(0, 200) }, price: null, currency: 'EUR', url })
-      }
-    }
-
-    return applyTransportFilters(results, filters, { minKey: 'min_flight', maxKey: 'max_flight' })
-  } finally {
-    await page.close()
+async function scrapeFlights(_ctx, { origin, destination, start_date, end_date, filters = {} }) {
+  if (!process.env.DUFFEL_API_KEY) {
+    console.warn('DUFFEL_API_KEY manquant — vols ignorés')
+    return []
   }
 
-  return results
+  try {
+    const [originCode, destCode] = await Promise.all([
+      cityToIata(origin),
+      cityToIata(destination),
+    ])
+
+    if (!originCode || !destCode) {
+      console.warn(`Codes IATA introuvables : ${origin} / ${destination}`)
+      return []
+    }
+
+    const slices = [
+      { origin: originCode, destination: destCode, departure_date: start_date },
+    ]
+    if (filters.round_trip && end_date) {
+      slices.push({ origin: destCode, destination: originCode, departure_date: end_date })
+    }
+
+    const body = {
+      data: {
+        slices,
+        passengers: [{ type: 'adult' }],
+        cabin_class: CABIN_MAP[filters.cabin_class] || 'economy',
+        ...(filters.direct_only && { max_connections: 0 }),
+      },
+    }
+
+    const offerReqRes = await fetch(`${DUFFEL_BASE}/air/offer_requests?return_offers=true`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${process.env.DUFFEL_API_KEY}`,
+        'Duffel-Version': 'v2',
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify(body),
+    })
+
+    if (!offerReqRes.ok) {
+      const err = await offerReqRes.text()
+      console.warn(`Duffel offer request ${offerReqRes.status}: ${err.slice(0, 200)}`)
+      return []
+    }
+
+    const offerData = await offerReqRes.json()
+    const offers = (offerData.data?.offers || []).slice(0, 10)
+
+    const results = offers.map((offer) => {
+      const slice = offer.slices[0]
+      const firstSeg = slice.segments[0]
+      const lastSeg = slice.segments[slice.segments.length - 1]
+
+      return {
+        type: 'flight',
+        provider: firstSeg.marketing_carrier?.name || firstSeg.operating_carrier?.name || 'Compagnie inconnue',
+        source: 'duffel',
+        details: {
+          departure_city: origin,
+          arrival_city: destination,
+          departure_time: firstSeg.departing_at,
+          arrival_time: lastSeg.arriving_at,
+          duration: formatDuration(slice.duration),
+          flight_number: `${firstSeg.marketing_carrier?.iata_code}${firstSeg.marketing_carrier_flight_number}`,
+          stops: slice.segments.length - 1,
+          cabin: CABIN_MAP[filters.cabin_class] || 'economy',
+        },
+        price: parseFloat(offer.total_amount),
+        currency: offer.total_currency,
+        url: `https://duffel.com`,
+      }
+    })
+
+    return applyTransportFilters(results, filters, { minKey: 'min_flight', maxKey: 'max_flight' })
+  } catch (err) {
+    console.error('Duffel flights error:', err.message)
+    return []
+  }
 }
 
 module.exports = { scrapeFlights }

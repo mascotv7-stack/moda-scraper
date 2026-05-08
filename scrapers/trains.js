@@ -1,54 +1,118 @@
 const { applyTransportFilters } = require('./postFilters')
 
-// Scrape SNCF Connect pour 3 options de trains
-async function scrapeTrains(context, { origin, destination, start_date, end_date, filters = {} }) {
-  const page = await context.newPage()
-  const results = []
+const SNCF_BASE = 'https://api.sncf.com/v1/coverage/sncf'
 
-  try {
-    const dateObj = new Date(start_date)
-    const day = String(dateObj.getDate()).padStart(2, '0')
-    const month = String(dateObj.getMonth() + 1).padStart(2, '0')
-    const year = dateObj.getFullYear()
+function sncfHeaders() {
+  const key = process.env.SNCF_API_KEY
+  return {
+    Authorization: 'Basic ' + Buffer.from(key + ':').toString('base64'),
+    'Content-Type': 'application/json',
+  }
+}
 
-    const classParam = filters.cabin_class === 'business' ? '&travelClass=FIRST' : '&travelClass=SECOND'
-    const directParam = filters.direct_only ? '&directTrains=true' : ''
-    const roundTripParam = filters.round_trip && end_date ? `&returnDate=${end_date}T08:00:00` : ''
+async function cityToStationId(city) {
+  const res = await fetch(
+    `${SNCF_BASE}/places?q=${encodeURIComponent(city)}&type[]=stop_area&count=1`,
+    { headers: sncfHeaders() }
+  )
+  if (!res.ok) return null
+  const data = await res.json()
+  return data.places?.[0]?.id || null
+}
 
-    const url = `https://www.sncf-connect.com/app/home/shop/search?from=${encodeURIComponent(origin)}&to=${encodeURIComponent(destination)}&date=${year}-${month}-${day}T08:00:00&passengers=1${classParam}${directParam}${roundTripParam}`
-    await page.goto(url, { waitUntil: 'networkidle', timeout: 30000 })
-    await page.waitForTimeout(4000)
+function formatSncfTime(dt) {
+  // "20260510T083000" → "2026-05-10T08:30:00"
+  if (!dt || dt.length < 15) return dt
+  return `${dt.slice(0, 4)}-${dt.slice(4, 6)}-${dt.slice(6, 8)}T${dt.slice(9, 11)}:${dt.slice(11, 13)}:${dt.slice(13, 15)}`
+}
 
-    const trainCards = await page.$$('[data-testid="proposal-card"], .proposal-card, article[class*="proposal"]')
-    const maxResults = Math.min(trainCards.length, 3)
+function formatDurationSec(seconds) {
+  if (!seconds) return null
+  const h = Math.floor(seconds / 3600)
+  const m = Math.floor((seconds % 3600) / 60)
+  return `${h}h${String(m).padStart(2, '0')}m`
+}
 
-    for (let i = 0; i < maxResults; i++) {
-      const card = trainCards[i]
-      try {
-        const depTime = await card.$eval('[data-testid="departure-time"], .departure-time', el => el.textContent.trim()).catch(() => null)
-        const arrTime = await card.$eval('[data-testid="arrival-time"], .arrival-time', el => el.textContent.trim()).catch(() => null)
-        const duration = await card.$eval('[data-testid="duration"], .duration', el => el.textContent.trim()).catch(() => null)
-        const priceText = await card.$eval('[data-testid="price"], .price', el => el.textContent.trim()).catch(() => null)
-        const priceNum = priceText ? parseFloat(priceText.replace(/[^0-9,]/g, '').replace(',', '.')) : null
-        const trainType = await card.$eval('[data-testid="train-label"], .train-label', el => el.textContent.trim()).catch(() => 'TGV INOUI')
-
-        results.push({
-          type: 'train',
-          provider: trainType,
-          details: { departure_city: origin, arrival_city: destination, departure_time: depTime, arrival_time: arrTime, duration },
-          price: priceNum,
-          currency: 'EUR',
-          url,
-        })
-      } catch (_) {}
-    }
-
-    return applyTransportFilters(results, filters, { minKey: 'min_train', maxKey: 'max_train' })
-  } finally {
-    await page.close()
+async function scrapeTrains(_ctx, { origin, destination, start_date, end_date, filters = {} }) {
+  if (!process.env.SNCF_API_KEY) {
+    console.warn('SNCF_API_KEY manquant — trains ignorés')
+    return []
   }
 
-  return results
+  try {
+    const [fromId, toId] = await Promise.all([
+      cityToStationId(origin),
+      cityToStationId(destination),
+    ])
+
+    if (!fromId || !toId) {
+      console.warn(`Gares introuvables : ${origin} / ${destination}`)
+      return []
+    }
+
+    const datetime = start_date.replace(/-/g, '') + 'T080000'
+    const params = new URLSearchParams({
+      from: fromId,
+      to: toId,
+      datetime,
+      count: '8',
+    })
+
+    if (filters.direct_only) params.set('direct_path', 'only')
+    if (filters.cabin_class === 'business') params.set('traveler_type', 'standard_holder')
+
+    const res = await fetch(`${SNCF_BASE}/journeys?${params}`, {
+      headers: sncfHeaders(),
+    })
+
+    if (!res.ok) {
+      console.warn(`SNCF API ${res.status}`)
+      return []
+    }
+
+    const data = await res.json()
+
+    const results = (data.journeys || [])
+      .filter((j) => j.status !== 'NO_SERVICE')
+      .map((journey) => {
+        const trainSection = journey.sections?.find(
+          (s) => s.type === 'public_transport' && s.display_informations
+        )
+        const trainLabel = trainSection?.display_informations?.commercial_mode || 'Train'
+        const trainNumber = trainSection?.display_informations?.headsign || null
+
+        // Prix : disponible seulement si l'API le retourne
+        const fareLinks = journey.fare?.links || []
+        const priceLink = fareLinks.find((l) => l.rel === 'tickets')
+        const priceNum = journey.fare?.total?.value
+          ? parseFloat(journey.fare.total.value) / 100
+          : null
+
+        return {
+          type: 'train',
+          provider: trainLabel,
+          source: 'sncf',
+          details: {
+            departure_city: origin,
+            arrival_city: destination,
+            departure_time: formatSncfTime(journey.departure_date_time),
+            arrival_time: formatSncfTime(journey.arrival_date_time),
+            duration: formatDurationSec(journey.duration),
+            train_number: trainNumber,
+            transfers: journey.nb_transfers ?? 0,
+            ...(priceNum === null && { note: 'Prix disponible sur SNCF Connect' }),
+          },
+          price: priceNum,
+          currency: 'EUR',
+          url: `https://www.sncf-connect.com/app/home/shop/search?from=${encodeURIComponent(origin)}&to=${encodeURIComponent(destination)}&date=${start_date}T08:00:00&passengers=1`,
+        }
+      })
+
+    return applyTransportFilters(results, filters, { minKey: 'min_train', maxKey: 'max_train' })
+  } catch (err) {
+    console.error('SNCF trains error:', err.message)
+    return []
+  }
 }
 
 module.exports = { scrapeTrains }
