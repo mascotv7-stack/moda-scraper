@@ -33,7 +33,7 @@ function formatDurationSec(seconds) {
   return `${h}h${String(m).padStart(2, '0')}m`
 }
 
-async function scrapeTrains(_ctx, { origin, destination, start_date, end_date, filters = {} }) {
+async function scrapeTrains(_ctx, { origin, destination, start_date, filters = {} }) {
   if (!process.env.SNCF_API_KEY) {
     console.warn('SNCF_API_KEY manquant — trains ignorés')
     return []
@@ -81,9 +81,6 @@ async function scrapeTrains(_ctx, { origin, destination, start_date, end_date, f
         const trainLabel = trainSection?.display_informations?.commercial_mode || 'Train'
         const trainNumber = trainSection?.display_informations?.headsign || null
 
-        // Prix : disponible seulement si l'API le retourne
-        const fareLinks = journey.fare?.links || []
-        const priceLink = fareLinks.find((l) => l.rel === 'tickets')
         const priceNum = journey.fare?.total?.value
           ? parseFloat(journey.fare.total.value) / 100
           : null
