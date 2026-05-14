@@ -70,6 +70,7 @@ app.post('/search', async (req, res) => {
     hotel_amenities:       travel_constraints?.hotel_amenities || [],
     bed_type:              travel_constraints?.bed_type || null,
     non_smoking:           travel_constraints?.non_smoking || false,
+    occupants_per_room:    travel_constraints?.occupants_per_room || null,
   }
 
   try {

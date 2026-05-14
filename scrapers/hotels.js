@@ -76,7 +76,7 @@ async function scrapeHotels(_ctx, { destination, start_date, end_date, filters =
         hotelIds,
         checkin: start_date,
         checkout: checkOut,
-        occupancies: [{ adults: 1 }],
+        occupancies: [{ adults: filters.occupants_per_room || 1 }],
         guestNationality: 'FR',
         currency: 'EUR',
       }),
