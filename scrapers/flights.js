@@ -1,4 +1,4 @@
-const { applyTransportFilters } = require('./postFilters')
+const { applyTransportFilters, sortByPreferredAirlines } = require('./postFilters')
 
 const DUFFEL_BASE = 'https://api.duffel.com'
 
@@ -113,7 +113,8 @@ async function scrapeFlights(_ctx, { origin, destination, start_date, end_date, 
       }
     })
 
-    return applyTransportFilters(results, filters, { minKey: 'min_flight', maxKey: 'max_flight' })
+    const filtered = applyTransportFilters(results, filters, { minKey: 'min_flight', maxKey: 'max_flight' })
+    return sortByPreferredAirlines(filtered, filters.preferred_airlines)
   } catch (err) {
     console.error('Duffel flights error:', err.message)
     return []

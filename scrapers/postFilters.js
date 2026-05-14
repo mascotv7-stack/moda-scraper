@@ -57,4 +57,49 @@ function applyTransportFilters(results, filters, { minKey, maxKey } = {}) {
   return out
 }
 
-module.exports = { filterByPrice, filterByArrival, filterByAirlines, applyTransportFilters }
+function filterByBedType(results, bedType) {
+  if (!bedType) return results
+  const keywords = {
+    double: ['double', 'king', 'queen', 'matrimonial', 'grand lit'],
+    twin:   ['twin', 'deux lits', 'lits jumeaux', 'two beds', '2 beds'],
+  }
+  const kws = keywords[bedType] || []
+  const filtered = results.filter((r) => {
+    const roomType = (r.details?.room_type || '').toLowerCase()
+    if (!roomType) return true
+    return kws.some((k) => roomType.includes(k))
+  })
+  return filtered.length > 0 ? filtered : results
+}
+
+function filterByAmenities(results, requiredAmenities) {
+  if (!requiredAmenities || requiredAmenities.length === 0) return results
+  const keywordMap = {
+    gym:  ['gym', 'fitness', 'sport', 'musculation'],
+    spa:  ['spa', 'sauna', 'hammam', 'bien-être'],
+    pool: ['pool', 'piscine', 'swimming'],
+  }
+  const filtered = results.filter((r) => {
+    const amenities = (r.details?.amenities || []).map((a) => a.toLowerCase())
+    if (amenities.length === 0) return true
+    return requiredAmenities.every((req) => {
+      const kws = keywordMap[req] || [req]
+      return amenities.some((a) => kws.some((k) => a.includes(k)))
+    })
+  })
+  return filtered.length > 0 ? filtered : results
+}
+
+function sortByPreferredAirlines(results, preferredAirlines) {
+  if (!preferredAirlines || preferredAirlines.length === 0) return results
+  const preferred = preferredAirlines.map((a) => a.toLowerCase())
+  return [...results].sort((a, b) => {
+    const aMatch = preferred.some((p) => (a.provider || '').toLowerCase().includes(p))
+    const bMatch = preferred.some((p) => (b.provider || '').toLowerCase().includes(p))
+    if (aMatch && !bMatch) return -1
+    if (!aMatch && bMatch) return 1
+    return 0
+  })
+}
+
+module.exports = { filterByPrice, filterByArrival, filterByAirlines, applyTransportFilters, filterByBedType, filterByAmenities, sortByPreferredAirlines }
