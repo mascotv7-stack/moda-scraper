@@ -71,6 +71,9 @@ app.post('/search', async (req, res) => {
     bed_type:              travel_constraints?.bed_type || null,
     non_smoking:           travel_constraints?.non_smoking || false,
     occupants_per_room:    travel_constraints?.occupants_per_room || null,
+    rooms_needed:          travel_constraints?.rooms_needed || null,
+    bathrooms_min:         travel_constraints?.bathrooms_min || null,
+    kitchen_required:      travel_constraints?.kitchen_required || false,
   }
 
   try {

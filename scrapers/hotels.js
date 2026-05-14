@@ -1,5 +1,5 @@
 const { filterByDistance } = require('./geo')
-const { filterByPrice, filterByBedType, filterByAmenities } = require('./postFilters')
+const { filterByPrice, filterByBedType, filterByAmenities, filterByBathrooms, filterByKitchen } = require('./postFilters')
 
 const LITEAPI_BASE = 'https://api.liteapi.travel/v3.0'
 
@@ -127,10 +127,12 @@ async function scrapeHotels(_ctx, { destination, start_date, end_date, filters =
         }
       })
 
-    const byDistance  = await filterByDistance(results, filters, destination)
-    const byPrice     = filterByPrice(byDistance, filters.min_hotel, filters.max_hotel)
-    const byBedType   = filterByBedType(byPrice, filters.bed_type)
-    return filterByAmenities(byBedType, filters.hotel_amenities)
+    const byDistance   = await filterByDistance(results, filters, destination)
+    const byPrice      = filterByPrice(byDistance, filters.min_hotel, filters.max_hotel)
+    const byBedType    = filterByBedType(byPrice, filters.bed_type)
+    const byAmenities  = filterByAmenities(byBedType, filters.hotel_amenities)
+    const byBathrooms  = filterByBathrooms(byAmenities, filters.bathrooms_min)
+    return filterByKitchen(byBathrooms, filters.kitchen_required)
   } catch (err) {
     console.error('LiteAPI hotels error:', err.message)
     return []

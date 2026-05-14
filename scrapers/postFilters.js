@@ -90,6 +90,36 @@ function filterByAmenities(results, requiredAmenities) {
   return filtered.length > 0 ? filtered : results
 }
 
+function filterByBathrooms(results, bathroomsMin) {
+  if (!bathroomsMin || bathroomsMin <= 1) return results
+  const filtered = results.filter((r) => {
+    const amenities = (r.details?.amenities || []).map((a) => a.toLowerCase())
+    const roomType = (r.details?.room_type || '').toLowerCase()
+    const combined = [...amenities, roomType].join(' ')
+    for (let n = bathroomsMin; n <= 5; n++) {
+      if (
+        combined.includes(`${n} bathroom`) ||
+        combined.includes(`${n} bath`) ||
+        combined.includes(`${n} salle de bain`) ||
+        combined.includes(`${n} sdb`)
+      ) return true
+    }
+    return false
+  })
+  return filtered.length > 0 ? filtered : results
+}
+
+function filterByKitchen(results, kitchenRequired) {
+  if (!kitchenRequired) return results
+  const keywords = ['kitchen', 'kitchenette', 'cuisine', 'cuisiné', 'cooking', 'cuisinette']
+  const filtered = results.filter((r) => {
+    const amenities = (r.details?.amenities || []).map((a) => a.toLowerCase())
+    if (amenities.length === 0) return true
+    return keywords.some((k) => amenities.some((a) => a.includes(k)))
+  })
+  return filtered.length > 0 ? filtered : results
+}
+
 function sortByPreferredAirlines(results, preferredAirlines) {
   if (!preferredAirlines || preferredAirlines.length === 0) return results
   const preferred = preferredAirlines.map((a) => a.toLowerCase())
@@ -102,4 +132,4 @@ function sortByPreferredAirlines(results, preferredAirlines) {
   })
 }
 
-module.exports = { filterByPrice, filterByArrival, filterByAirlines, applyTransportFilters, filterByBedType, filterByAmenities, sortByPreferredAirlines }
+module.exports = { filterByPrice, filterByArrival, filterByAirlines, applyTransportFilters, filterByBedType, filterByAmenities, filterByBathrooms, filterByKitchen, sortByPreferredAirlines }
