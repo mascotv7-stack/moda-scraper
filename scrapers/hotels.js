@@ -69,6 +69,10 @@ async function scrapeHotels(_ctx, { destination, start_date, end_date, filters =
     hotels.forEach(h => { hotelMeta[h.id] = h })
     const hotelIds = hotels.slice(0, 15).map(h => h.id)
 
+    const roomsCount = filters.rooms_needed || 1
+    const adultsPerRoom = filters.occupants_per_room || 1
+    const occupancies = Array.from({ length: roomsCount }, () => ({ adults: adultsPerRoom }))
+
     const ratesRes = await fetch(`${LITEAPI_BASE}/hotels/rates`, {
       method: 'POST',
       headers: liteHeaders(),
@@ -76,7 +80,7 @@ async function scrapeHotels(_ctx, { destination, start_date, end_date, filters =
         hotelIds,
         checkin: start_date,
         checkout: checkOut,
-        occupancies: [{ adults: filters.occupants_per_room || 1 }],
+        occupancies,
         guestNationality: 'FR',
         currency: 'EUR',
       }),
